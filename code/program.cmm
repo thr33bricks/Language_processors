@@ -1,0 +1,32 @@
+// Yordan Yordanov
+// October 2025
+
+a = 5;
+b = 65;
+c = a + b;
+// d = true;
+// k = null;
+p = read(); // reads a char from console
+
+// comment
+if (a > c){
+    print(a + b + 10 * (c + d));
+    continue;
+    break;
+    print('A');
+}
+else{
+    print('2');
+}
+
+// for(i=0; i<5; i++){
+//     if(i < 4)
+//         break;
+//     print(i);
+// }
+
+while(k == 0){
+    if(k == 1)
+        continue;
+    k = 1;
+}
