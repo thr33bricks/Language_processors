@@ -30,6 +30,7 @@ Lex::Lex(){
     varIdx = 0;
     currLine = 1;
     fileContIdx = 0;
+    error = false;
 
     st = new SymbTab();
     ReadFile();
@@ -167,6 +168,7 @@ SymbolInfo* Lex::RecognizeChar(char ch){
         return st->addSymbol(string(constCh), SymbolInfo::CHAR, (uint64_t)res);
     }
 
+    LexicalError(ch2, "Single character expected!");
     return nullptr;
 }
 
@@ -201,10 +203,12 @@ uint8_t Lex::LexicalError(char ch, const std::string &error){
         return 1;
     }
     else if(error != "" && ERROR){
+        this->error = true;
         std::cout << "LEX ERROR 2: " << error << " '" << ch << "'" << std::endl;
         return 2;
     }
     else if(ERROR){
+        this->error = true;
         std::cout << "LEX ERROR 3: Unrecognized character! '" << ch << "'" << std::endl;
         return 3;
     }

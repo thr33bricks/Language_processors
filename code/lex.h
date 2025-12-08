@@ -22,6 +22,7 @@ public:
     uint8_t ReadFile();
 
     uint32_t currLine;
+    bool error;
 
     SymbTab* st;
     std::string fileContent;

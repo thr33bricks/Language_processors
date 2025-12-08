@@ -17,6 +17,11 @@ int main() {
         lex->lines.push_back(lex->currLine);
         si = lex->LexAnalyze();
     }
+    if(lex->error){
+        delete synt;
+        delete lex;
+        return 1;
+    }
 
     // Test lexycal analyzer
     // std::cout << "File content after removing comments: " << lex->fileContent << std::endl;
