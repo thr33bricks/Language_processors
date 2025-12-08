@@ -134,15 +134,37 @@ SymbolInfo* Lex::RecognizeNumber(char ch){
 SymbolInfo* Lex::RecognizeChar(char ch){
     char ch2 = GetNextChar();
     char ch3 = GetNextChar();
+    char ch4 = GetNextChar();
     char* constCh = new char[4];
     
     if(ch3 == '\''){
+        char* constCh = new char[4];
         constCh[0] = ch;
         constCh[1] = ch2;
         constCh[2] = ch3;
         constCh[3] = '\0';
 
+        fileContIdx--;
         return st->addSymbol(string(constCh), SymbolInfo::CHAR, (uint64_t)ch2);
+    }
+    else if(ch4 == '\'' && ch2 == '\\'){
+        char res = '\0';
+        char* constCh = new char[5];
+        constCh[0] = ch;
+        constCh[1] = ch2;
+        constCh[2] = ch3;
+        constCh[3] = ch4;
+        constCh[4] = '\0';
+
+        switch(ch3){
+            case 'n': res = '\n'; break;
+            case 't': res = '\t'; break;
+            case '\\': res = '\\'; break;
+            case '\'': res = '\''; break;
+            default: res = ch3; break; // unrecognized escape sequence, just take the char as is
+        }
+
+        return st->addSymbol(string(constCh), SymbolInfo::CHAR, (uint64_t)res);
     }
 
     return nullptr;

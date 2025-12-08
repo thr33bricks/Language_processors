@@ -1,19 +1,29 @@
 // Yordan Yordanov
-// October 2025
+// December 2025
 
+
+// snow = 1 => snow animation
+// snow = 0 => bouncing star animation
+snow = 0;
 
 pos = 0;
 dir = 1;
 width = 50;
+k_max = 10;
 star = '*';
 space = ' ';
+clr = '\n';
+
+if(snow){
+    clr = ' ';
+    k_max = 32;
+}
 
 while (1) {
-    // Try to clear screen
-    clear_iter = 0; 
-    while(clear_iter <= 32){
-        print(' ');
-        clear_iter++;
+    k = 0; 
+    while(k <= k_max){
+        print(clr);
+        k++;
     }
 
     i = 0;
@@ -28,7 +38,6 @@ while (1) {
 
     // Wait
     wait = 5000;
-    while(wait >= 0){
+    while(wait >= 0)
         wait--;
-    }
 }
