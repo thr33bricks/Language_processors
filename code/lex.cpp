@@ -56,8 +56,17 @@ SymbolInfo* Lex::LexAnalyze(){
     else if(ch == '\'')
         return RecognizeChar(ch);
     else if(ch == '/'){
-        RemoveComment();
-        return LexAnalyze();
+        // Peek next char to decide if this is a comment or the division operator
+        char next = GetNextChar();
+        if (next == '/') {
+            // It's a single-line comment: consume rest of the line
+            RemoveComment();
+            return LexAnalyze();
+        } else {
+            // Not a comment: push the peeked character back and treat '/' as an operator
+            fileContIdx--; 
+            return RecognizeOperator(ch);
+        }
     }
     else if(IsOperatorChar(ch))
         return RecognizeOperator(ch);
@@ -66,17 +75,19 @@ SymbolInfo* Lex::LexAnalyze(){
     return nullptr; // unrecognized char or \0
 }
 
-void Lex::RemoveComment(){
-    char ch = GetNextChar();
-    if(ch == '/'){
-        fileContent[fileContIdx-2] = ' ';
-
-        while(ch != '\n' && ch != '\0'){
-            fileContent[fileContIdx-1] = ' ';
-            ch = GetNextChar();
+void Lex::RemoveComment() {
+    // Called when we've already consumed the second '/'
+    // Consume characters until end of current line or EOF.
+    while (true) {
+        char ch = GetNextChar();
+        if (ch == '\n' || ch == '\0') {
+            // leave the newline (or EOF) for the caller to handle,
+            // so line counting in LexAnalyze remains correct
+            fileContIdx--;
+            break;
         }
+        // otherwise keep consuming
     }
-    fileContIdx--;
 }
 
 SymbolInfo* Lex::RecognizeIdentifier(char ch){
@@ -178,8 +189,11 @@ uint8_t Lex::LexicalError(char ch, const std::string &error){
 }
 
 char Lex::GetNextChar(){
-    return fileContIdx < fileContent.size() ? fileContent[fileContIdx++] : '\0';
+    char c = fileContIdx < fileContent.size() ? fileContent[fileContIdx] : '\0';
+    fileContIdx++;
+    return c;
 }
+
 
 uint8_t Lex::ReadFile(){
     std::ifstream file(INPUT_FILE); // Open file

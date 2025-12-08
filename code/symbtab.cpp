@@ -1,9 +1,8 @@
-// Yordan Yordanov, October 2025
-
 #include "symbtab.h"
 #include <queue>
 #include <iostream>
 using namespace std;
+
 
 SymbTab::SymbTab() {
     root = new PrefixNode();
@@ -42,7 +41,7 @@ SymbolInfo* SymbTab::addSymbol(const std::string &symbol, uint8_t code, uint64_t
         return current->info;
     }
 
-    return current->info; // Symbol already exists, currently retrurning existing info, maybe wong?
+    return current->info; // Symbol already exists
 }
 
 void SymbTab::printAll() {
@@ -70,15 +69,42 @@ void SymbTab::printAll() {
     }
 }
 
+std::string SymbTab::getName(uint8_t code, uint64_t val) const {
+    if (!root) return "";
+
+    std::queue<std::pair<const PrefixNode*, std::string>> q;
+    q.push({root, ""});
+
+    while (!q.empty()) {
+        auto [node, prefix] = q.front();
+        q.pop();
+
+        if (node->isEndOfWord && node->info != nullptr) {
+            if (node->info->code == code && node->info->val == val) {
+                return prefix;
+            }
+        }
+
+        for (int i = 0; i < ALPHABET_SIZE; ++i) {
+            if (node->children[i] != nullptr) {
+                char ch = idxToChar(i);
+                q.push({node->children[i], prefix + ch});
+            }
+        }
+    }
+
+    return "";
+}
+
 // 94 characters in total
-uint8_t SymbTab::charToIndex(char ch){
+uint8_t SymbTab::charToIndex(char ch) const {
     if(ch >= '!' && ch <= '~') // printable ASCII
         return ch - '!';
     else
         return 255; // invalid character
 }
 
-char SymbTab::idxToChar(uint8_t idx){
+char SymbTab::idxToChar(uint8_t idx) const {
     if(idx <= 93) // printable ASCII
         return idx + 33;
     else

@@ -21,7 +21,7 @@
 #include "settings.h"
 
 #define REL_OPS_CNT 2
-#define REL_OPS_CNT_2 4
+#define REL_OPS_CNT_2 6
 
 
 const uint8_t relOps[REL_OPS_CNT] = {
@@ -30,23 +30,22 @@ const uint8_t relOps[REL_OPS_CNT] = {
 
 const uint8_t relOps2[REL_OPS_CNT_2] = {
     SymbolInfo::LOGICAL_EQUALS, SymbolInfo::NOT_EQUALS, 
-    SymbolInfo::LESS_EQUAL, SymbolInfo::MORE_EQUAL
+    SymbolInfo::LESS_EQUAL, SymbolInfo::MORE_EQUAL, 
+    SymbolInfo::AND, SymbolInfo::OR
 };
-
-struct Quad {
-    SymbolInfo* op;
-    SymbolInfo* arg1;
-    SymbolInfo* arg2;
-    // res;
-};
-
 
 Synt::Synt(std::vector<SymbolInfo>& symbolList, std::vector<uint32_t>& lines)
         : symbolList(symbolList), lines(lines) {
     tokenIdx = 0;
+    inCurlyCount = 0;
     exitCurlyBlock = false;
-    inCurlyBlock = false;
     token = nullptr;
+    tempVarCounter = 0;
+    labelCounter = 0;
+}
+
+Synt::~Synt(){
+    // Destructor - quads vector will be automatically cleaned up
 }
 
 void Synt::SyntaxError(uint8_t errNum, const std::string &error){
@@ -75,7 +74,7 @@ void Synt::z(){
 }
 
 void Synt::block_list(){
-    while (!exitCurlyBlock)
+    while (!exitCurlyBlock && token != nullptr)
         stm();
     exitCurlyBlock = false;
 }
@@ -92,39 +91,68 @@ void Synt::semicolon(){
 
 void Synt::stm(){
     // handle curly block ending
-    if (inCurlyBlock && token->code == SymbolInfo::OPERATOR && 
+    if (inCurlyCount > 0 && token != nullptr && token->code == SymbolInfo::OPERATOR && 
             token->val == SymbolInfo::CLOSE_CURLY_BRACKET){
         exitCurlyBlock = true;
+        // Don't consume the token here - let the block handler consume it
         return;
     }
     else if (token->code == SymbolInfo::VARIABLE){ // identifier
-        GetToken();
-        if (token->code != SymbolInfo::OPERATOR || 
-                token->val != SymbolInfo::EQUALS) 
-            SyntaxError(3, "\"=\" symbol expected after identifier!" ); 
+        SymbolInfo* var = token;  // Save the variable
         GetToken();
         
-        // read()
-        if (token->code == SymbolInfo::CONSOLE && 
-                token->val == SymbolInfo::READ){
+        // Check for increment/decrement as standalone statement (a++ or a--)
+        if (token->code == SymbolInfo::OPERATOR2 && 
+                (token->val == SymbolInfo::INCREMENT || token->val == SymbolInfo::DECREMENT)) {
+            SymbolInfo* op = token;  // Save the operator
             GetToken();
-            if (token->code != SymbolInfo::OPERATOR || 
-                    token->val != SymbolInfo::OPEN_BRACKET) 
-                SyntaxError(4, "\"(\" symbol expected after \"read\"!" );
-            GetToken();
-            if (token->code != SymbolInfo::OPERATOR || 
-                    token->val != SymbolInfo::CLOSE_BRACKET) 
-                SyntaxError(5, "\")\" symbol expected after \"read(\"!" );
-            GetToken();
+            // Generate quads for increment/decrement
+            SymbolInfo* one = new SymbolInfo();
+            one->code = SymbolInfo::NUMBER;
+            one->val = 1;
+            SymbolInfo* arithOp = new SymbolInfo();
+            arithOp->code = SymbolInfo::OPERATOR;
+            arithOp->val = (op->val == SymbolInfo::INCREMENT) ? SymbolInfo::PLUS : SymbolInfo::MINUS;
+            // Update the variable: var = var +/- 1
+            emitQuad(arithOp, var, one, var);
             semicolon();
         }
-        else{
-            expr();
-            semicolon();
+        else if (token->code != SymbolInfo::OPERATOR || 
+                token->val != SymbolInfo::EQUALS) {
+            SyntaxError(3, "\"=\" symbol expected after identifier!" ); 
+        }
+        else {
+            SymbolInfo* assignOp = token;  // Save the equals token before consuming
+            GetToken();
+            
+            // read()
+            if (token->code == SymbolInfo::CONSOLE && 
+                    token->val == SymbolInfo::READ){
+                SymbolInfo* readOp = token;  // Save the read token
+                GetToken();
+                if (token->code != SymbolInfo::OPERATOR || 
+                        token->val != SymbolInfo::OPEN_BRACKET) 
+                    SyntaxError(4, "\"(\" symbol expected after \"read\"!" );
+                GetToken();
+                if (token->code != SymbolInfo::OPERATOR || 
+                        token->val != SymbolInfo::CLOSE_BRACKET) 
+                    SyntaxError(5, "\")\" symbol expected after \"read(\"!" );
+                GetToken();
+                // Generate quad for read: read -> var
+                emitQuad(readOp, nullptr, nullptr, var);
+                semicolon();
+            }
+            else{
+                SymbolInfo* exprResult = expr();
+                // Generate quad for assignment: var = exprResult
+                emitQuad(assignOp, exprResult, nullptr, var);
+                semicolon();
+            }
         }
     } 
     else if (token->code == SymbolInfo::CONSOLE && 
               token->val == SymbolInfo::READ){ // read()
+        SymbolInfo* readOp = token;  // Save the read token
         GetToken();
         if (token->code != SymbolInfo::OPERATOR || 
                 token->val != SymbolInfo::OPEN_BRACKET) 
@@ -134,20 +162,25 @@ void Synt::stm(){
                 token->val != SymbolInfo::CLOSE_BRACKET) 
             SyntaxError(5, "\")\" symbol expected after \"read(\"!" );
         GetToken();
+        // Generate quad for read (discard result)
+        emitQuad(readOp, nullptr, nullptr, nullptr);
         semicolon();
     }
     else if (token->code == SymbolInfo::CONSOLE && 
               token->val == SymbolInfo::PRINT){ // print
+        SymbolInfo* printOp = token;  // Save the print token
         GetToken();
         if (token->code != SymbolInfo::OPERATOR || 
                 token->val != SymbolInfo::OPEN_BRACKET) 
             SyntaxError(6, "\"(\" symbol expected after \"print\"!" );
         GetToken();
-        expr();
+        SymbolInfo* exprResult = expr();
         if (token->code != SymbolInfo::OPERATOR || 
                 token->val != SymbolInfo::CLOSE_BRACKET) 
             SyntaxError(7, "\")\" symbol expected after \"print(expression\"!" );
         GetToken();
+        // Generate quad for print: print exprResult
+        emitQuad(printOp, exprResult, nullptr, nullptr);
         semicolon();
     } 
     else if (token->code == SymbolInfo::LOOP && 
@@ -157,16 +190,60 @@ void Synt::stm(){
                 token->val != SymbolInfo::OPEN_BRACKET) 
             SyntaxError(8, "\"(\" symbol expected after \"if\"!" );
         GetToken();
-        expr();
+        SymbolInfo* condition = expr();
         if (token->code != SymbolInfo::OPERATOR || 
                 token->val != SymbolInfo::CLOSE_BRACKET) 
             SyntaxError(9, "\")\" symbol expected after \"if(expression\"!" );
         GetToken();
-        stm();
-        if (token->code == SymbolInfo::LOOP && 
+        
+        // Generate label for else/end
+        uint32_t elseLabel = genLabel();
+        SymbolInfo* elseLabelSym = new SymbolInfo();
+        elseLabelSym->code = SymbolInfo::VARIABLE;  // Use VARIABLE code for labels
+        elseLabelSym->val = 10000 + elseLabel;  // Offset to distinguish from regular vars
+        
+        // Generate quad: if condition is false, goto elseLabel
+        SymbolInfo* gotoOp = new SymbolInfo();
+        gotoOp->code = SymbolInfo::LOOP;  // Use LOOP code for goto
+        gotoOp->val = 999;  // Special value for goto
+        SymbolInfo* zero = new SymbolInfo();
+        zero->code = SymbolInfo::NUMBER;
+        zero->val = 0;
+        SymbolInfo* equalsOp = new SymbolInfo();
+        equalsOp->code = SymbolInfo::OPERATOR2;
+        equalsOp->val = SymbolInfo::LOGICAL_EQUALS;
+        SymbolInfo* notCond = genTempVar();
+        emitQuad(equalsOp, condition, zero, notCond);
+        emitQuad(gotoOp, notCond, nullptr, elseLabelSym);
+        
+        stm();  // Process if statement
+        
+        bool hasElse = false;
+        if (token != nullptr && token->code == SymbolInfo::LOOP && 
               token->val == SymbolInfo::ELSE){ // else
+            hasElse = true;
             GetToken();
-            stm();
+            
+            // Generate label for end of if-else
+            uint32_t endLabel = genLabel();
+            SymbolInfo* endLabelSym = new SymbolInfo();
+            endLabelSym->code = SymbolInfo::VARIABLE;
+            endLabelSym->val = 10000 + endLabel;
+            
+            // Generate quad: goto endLabel (skip else)
+            emitQuad(gotoOp, nullptr, nullptr, endLabelSym);
+            
+            // Emit else label
+            emitQuad(nullptr, nullptr, nullptr, elseLabelSym);  // Label quad
+            
+            stm();  // Process else statement
+            
+            // Emit end label
+            emitQuad(nullptr, nullptr, nullptr, endLabelSym);  // Label quad
+        }
+        else {
+            // Emit else label (end of if)
+            emitQuad(nullptr, nullptr, nullptr, elseLabelSym);  // Label quad
         }
     } 
     else if (token->code == SymbolInfo::LOOP && 
@@ -176,44 +253,122 @@ void Synt::stm(){
                 token->val != SymbolInfo::OPEN_BRACKET)
             SyntaxError(10, "\"(\" symbol expected after \"while\"!" );
         GetToken();
-        expr();
+        
+        // Generate labels for while loop
+        uint32_t startLabel = genLabel();
+        uint32_t endLabel = genLabel();
+        SymbolInfo* startLabelSym = new SymbolInfo();
+        startLabelSym->code = SymbolInfo::VARIABLE;
+        startLabelSym->val = 10000 + startLabel;
+        SymbolInfo* endLabelSym = new SymbolInfo();
+        endLabelSym->code = SymbolInfo::VARIABLE;
+        endLabelSym->val = 10000 + endLabel;
+        
+        // Push loop labels onto stack for break/continue
+        LoopLabels loopLabels;
+        loopLabels.startLabel = startLabelSym;
+        loopLabels.endLabel = endLabelSym;
+        loopStack.push(loopLabels);
+        
+        // Emit start label
+        emitQuad(nullptr, nullptr, nullptr, startLabelSym);  // Label quad
+        
+        SymbolInfo* condition = expr();
         if (token->code != SymbolInfo::OPERATOR || 
                 token->val != SymbolInfo::CLOSE_BRACKET)
             SyntaxError(11, "\")\" symbol expected after \"while(expression\"!" );
         GetToken();
-        stm();
+        
+        // Generate quad: if condition is false (0), goto endLabel
+        // We want to jump to endLabel if condition == 0
+        SymbolInfo* gotoOp = new SymbolInfo();
+        gotoOp->code = SymbolInfo::LOOP;
+        gotoOp->val = 999;  // Special value for goto
+        // Conditional goto: if condition == 0, goto endLabel
+        SymbolInfo* zero = new SymbolInfo();
+        zero->code = SymbolInfo::NUMBER;
+        zero->val = 0;
+        SymbolInfo* equalsOp = new SymbolInfo();
+        equalsOp->code = SymbolInfo::OPERATOR2;
+        equalsOp->val = SymbolInfo::LOGICAL_EQUALS;
+        SymbolInfo* isFalse = genTempVar();
+        emitQuad(equalsOp, condition, zero, isFalse);
+        // If isFalse != 0 (i.e., condition == 0), goto endLabel
+        emitQuad(gotoOp, isFalse, nullptr, endLabelSym);
+        
+        stm();  // Process while body
+        
+        // Generate quad: goto startLabel (loop back)
+        emitQuad(gotoOp, nullptr, nullptr, startLabelSym);
+                
+        // Emit end label
+        emitQuad(nullptr, nullptr, nullptr, endLabelSym);  // Label quad
+        
+        // Pop loop labels from stack
+        loopStack.pop();
+        
+        // Note: After processing while body, we continue here
+        // The while loop is complete, so we return to the caller
     } 
     else if (token->code == SymbolInfo::LOOP && 
               token->val == SymbolInfo::BREAK){ // break
         GetToken();
+        if (loopStack.empty()) {
+            SyntaxError(17, "\"break\" statement not inside a loop!" );
+        }
+        // Generate quad: goto endLabel (exit the loop)
+        SymbolInfo* gotoOp = new SymbolInfo();
+        gotoOp->code = SymbolInfo::LOOP;
+        gotoOp->val = 999;  // Special value for goto
+        emitQuad(gotoOp, nullptr, nullptr, loopStack.top().endLabel);
         semicolon();
     }
     else if (token->code == SymbolInfo::LOOP && 
               token->val == SymbolInfo::CONTINUE){ // continue
         GetToken();
+        if (loopStack.empty()) {
+            SyntaxError(18, "\"continue\" statement not inside a loop!" );
+        }
+        // Generate quad: goto startLabel (loop back to condition)
+        SymbolInfo* gotoOp = new SymbolInfo();
+        gotoOp->code = SymbolInfo::LOOP;
+        gotoOp->val = 999;  // Special value for goto
+        emitQuad(gotoOp, nullptr, nullptr, loopStack.top().startLabel);
         semicolon();
     } 
     else if (token->code == SymbolInfo::OPERATOR && 
               token->val == SymbolInfo::OPEN_CURLY_BRACKET){ // block
-        inCurlyBlock = true;
+        inCurlyCount++;
         GetToken();
         block_list();
-        if (token->code != SymbolInfo::OPERATOR || 
-                token->val != SymbolInfo::CLOSE_CURLY_BRACKET)
-            SyntaxError(12, "\"}\" symbol expected at the end of block!" );
-        GetToken();
-        inCurlyBlock = false;
+        // After block_list() returns, the closing brace should still be in token
+        // (it was seen by inner stm() but not consumed - stm() just returned)
+        if (token != nullptr && token->code == SymbolInfo::OPERATOR &&
+                token->val == SymbolInfo::CLOSE_CURLY_BRACKET) {
+            if (tokenIdx < symbolList.size()) {
+                GetToken();  // Consume the closing brace
+            } else {
+                token = nullptr; // EOF after closing brace - avoid throwing
+            }
+        }
+        // If token is null, we've hit EOF (which is OK if we're at the end)
+        inCurlyCount--;
     }
     else SyntaxError(13, "Statement cannot be recognized!" );
 }
 
-void Synt::expr(){
-    add_expr();
-    bool relOpFound = false; // check for relational ops
+SymbolInfo* Synt::expr(){
+    SymbolInfo* result = add_expr();  // Get first add_expr
+    
+    bool relOpFound = false;
+    SymbolInfo* relOp = nullptr;
+    
+    // check for relational ops
     for (uint8_t i = 0; i < REL_OPS_CNT; ++i){
         if (token->code == SymbolInfo::OPERATOR && 
                 token->val == relOps[i]){
             relOpFound = true;
+            relOp = token;
             break;
         }  
     }
@@ -221,65 +376,184 @@ void Synt::expr(){
         if (token->code == SymbolInfo::OPERATOR2 && 
                 token->val == relOps2[i]){
             relOpFound = true;
+            relOp = token;
             break;
         }  
     }
     
     if (relOpFound){
         GetToken();
-        add_expr();
+        SymbolInfo* right = add_expr();  // Get second add_expr
+        
+        // Generate quad for relational operation: temp = result relOp right
+        SymbolInfo* temp = genTempVar();
+        emitQuad(relOp, result, right, temp);
+        result = temp;  // Result becomes the temporary variable
     }
+    
+    return result;
 }
 
 // term [+/- term]
-void Synt::add_expr(){ 
-    term();
+SymbolInfo* Synt::add_expr(){ 
+    SymbolInfo* result = term();  // Get first term
+    
     while (token->code == SymbolInfo::OPERATOR && 
             token->val == SymbolInfo::PLUS ||
            token->code == SymbolInfo::OPERATOR && 
             token->val == SymbolInfo::MINUS){
+        SymbolInfo* op = token;  // Save the operator
         GetToken();
-        term();
+        SymbolInfo* right = term();  // Get second term
+        
+        // Generate quad for operation: temp = result op right
+        SymbolInfo* temp = genTempVar();
+        emitQuad(op, result, right, temp);
+        result = temp;  // Result becomes the temporary variable
     }
+    
+    return result;
 }
 
 // term 
-void Synt::term(){
-    factor();
+SymbolInfo* Synt::term(){
+    SymbolInfo* result = factor();  // Get first factor
+    
     while (token->code == SymbolInfo::OPERATOR && 
             token->val == SymbolInfo::MULTI ||
            token->code == SymbolInfo::OPERATOR && 
             token->val == SymbolInfo::SLASH){
+        SymbolInfo* op = token;  // Save the operator
         GetToken();
-        factor();
+        SymbolInfo* right = factor();  // Get second factor
+        
+        // Generate quad for operation: temp = result op right
+        SymbolInfo* temp = genTempVar();
+        emitQuad(op, result, right, temp);
+        result = temp;  // Result becomes the temporary variable
     }
+    
+    return result;
 }
 
 // factor
-void Synt::factor(){
-    if (token->code == SymbolInfo::NUMBER)
+
+SymbolInfo* Synt::factor(){
+    SymbolInfo* result = nullptr;
+
+    // Handle unary plus/minus
+    if (token != nullptr && token->code == SymbolInfo::OPERATOR && token->val == SymbolInfo::PLUS) {
+        // unary plus: skip and parse next factor
         GetToken();
+        return factor();
+    }
+    if (token != nullptr && token->code == SymbolInfo::OPERATOR && token->val == SymbolInfo::MINUS) {
+        // unary minus: compute 0 - <factor>
+        GetToken();
+        SymbolInfo* rhs = factor();
+        SymbolInfo* zero = new SymbolInfo();
+        zero->code = SymbolInfo::NUMBER;
+        zero->val = 0;
+        SymbolInfo* minusOp = new SymbolInfo();
+        minusOp->code = SymbolInfo::OPERATOR;
+        minusOp->val = SymbolInfo::MINUS;
+        SymbolInfo* temp = genTempVar();
+        emitQuad(minusOp, zero, rhs, temp);
+        return temp;
+    }
+
+    if (token == nullptr) SyntaxError(15, "Factor cannot be recognized!" );
+
+    if (token->code == SymbolInfo::NUMBER){
+        result = token;  // Return the number itself
+        GetToken();
+    }
     else if (token->code == SymbolInfo::VARIABLE){
+        SymbolInfo* var = token;  // Save the variable
         GetToken();
 
-        if (token->code == SymbolInfo::OPERATOR2 && 
-                 token->val == SymbolInfo::INCREMENT ||
-                token->code == SymbolInfo::OPERATOR2 && 
-                 token->val == SymbolInfo::DECREMENT)
+        if (token != nullptr && token->code == SymbolInfo::OPERATOR2 &&
+                 token->val == SymbolInfo::INCREMENT){
+            // Generate quad for increment: var = var + 1
+            SymbolInfo* one = new SymbolInfo();
+            one->code = SymbolInfo::NUMBER;
+            one->val = 1;
+            SymbolInfo* plusOp = new SymbolInfo();
+            plusOp->code = SymbolInfo::OPERATOR;
+            plusOp->val = SymbolInfo::PLUS;
+            result = genTempVar();
+            emitQuad(plusOp, var, one, result);
+            // Also update the original variable
+            emitQuad(plusOp, var, one, var);
             GetToken();
+        }
+        else if (token != nullptr && token->code == SymbolInfo::OPERATOR2 &&
+                 token->val == SymbolInfo::DECREMENT){
+            // Generate quad for decrement: var = var - 1
+            SymbolInfo* one = new SymbolInfo();
+            one->code = SymbolInfo::NUMBER;
+            one->val = 1;
+            SymbolInfo* minusOp = new SymbolInfo();
+            minusOp->code = SymbolInfo::OPERATOR;
+            minusOp->val = SymbolInfo::MINUS;
+            result = genTempVar();
+            emitQuad(minusOp, var, one, result);
+            // Also update the original variable
+            emitQuad(minusOp, var, one, var);
+            GetToken();
+        }
+        else {
+            result = var;  // Just return the variable
+        }
     }
-    else if (token->code == SymbolInfo::CHAR)
+    else if (token->code == SymbolInfo::CHAR){
+        result = token;  // Return the char itself
         GetToken();
-    else if (token->code == SymbolInfo::OPERATOR && 
+    }
+    else if (token->code == SymbolInfo::OPERATOR &&
               token->val == SymbolInfo::OPEN_BRACKET){
         GetToken();
-        expr();
-        if (token->code != SymbolInfo::OPERATOR || 
+        result = expr();  // Get result from expression
+        if (token->code != SymbolInfo::OPERATOR ||
                 token->val != SymbolInfo::CLOSE_BRACKET)
             SyntaxError(14, "\")\" symbol expected after expression to form a factor!" );
         GetToken();
     }
     else SyntaxError(15, "Factor cannot be recognized!" );
+    
+    return result;
+}
+
+
+// Semantic analysis helper methods
+SymbolInfo* Synt::genTempVar(){
+    // Create a temporary variable SymbolInfo
+    // Use high offset (50000) to avoid conflicts with regular variables
+    SymbolInfo* temp = new SymbolInfo();
+    temp->code = SymbolInfo::VARIABLE;
+    temp->val = 50000 + tempVarCounter++;  // Use offset to distinguish from regular vars
+    return temp;
+}
+
+uint32_t Synt::genLabel(){
+    return labelCounter++;
+}
+
+void Synt::emitQuad(SymbolInfo* op, SymbolInfo* arg1, SymbolInfo* arg2, SymbolInfo* res){
+    // Broad EMITQUAD debug: show any label result quads
+    if (res != nullptr && res->code == SymbolInfo::VARIABLE && res->val >= 10000) {
+    }
+    // Broad EMITQUAD debug: show any label result quads
+    if (res != nullptr && res->code == SymbolInfo::VARIABLE && res->val >= 10000) {
+    }
+    if (op != nullptr && op->code == SymbolInfo::LOOP && op->val == 999 && arg1 == nullptr && res != nullptr && res->code == SymbolInfo::VARIABLE && res->val >= 10000) {
+    }
+    Quad quad;
+    quad.op = op;
+    quad.arg1 = arg1;
+    quad.arg2 = arg2;
+    quad.res = res;
+    quads.push_back(quad);
 }
 
 bool Synt::Parse(){
@@ -291,4 +565,3 @@ bool Synt::Parse(){
     }
     return true;
 }
-
