@@ -27,7 +27,6 @@ public:
     bool Parse();
     std::vector<Quad> quads; // Vector to store all generated quads
 private:
-    bool inCurlyBlock; // Flag to indicate if we are inside a { } block
     bool exitCurlyBlock; // Flag to signal that a '}' has been found
     uint32_t inCurlyCount;
     uint32_t tokenIdx;

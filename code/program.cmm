@@ -4,7 +4,7 @@
 
 // snow = 1 => snow animation
 // snow = 0 => bouncing star animation
-snow = 0;
+snow = 1;
 
 pos = 0;
 dir = 1;
