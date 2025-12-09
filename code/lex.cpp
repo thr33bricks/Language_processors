@@ -198,8 +198,9 @@ SymbolInfo* Lex::RecognizeOperator(char ch){
 }
 
 uint8_t Lex::LexicalError(char ch, const std::string &error){
-    if(ch == '\0' && DEBUG){
-        std::cout << "LEX: End of file!" << std::endl;
+    if(ch == '\0'){
+        if(DEBUG)
+            std::cout << "LEX: End of file!" << std::endl;
         return 1;
     }
     else if(error != "" && ERROR){

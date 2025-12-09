@@ -172,12 +172,19 @@ void Executor::printQuad(const Quad& quad, uint32_t index) {
 }
 
 void Executor::Execute() {
-    std::cout << "\n=== Executing Quads ===" << std::endl;
+    if(DEBUG)
+        std::cout << "\n=== Executing Quads ===" << std::endl;
 
     uint32_t pc = 0;  // Program counter
-
     while (pc < quads.size()) {
         const Quad& quad = quads[pc];
+
+        if(RUNTIME_DEBUGGING){
+            std::cout << std::endl << "Quad: " << pc << std::endl;
+            printVars();
+            std::cout << "Press Enter to continue...";
+            std::cin.get();
+        }
 
         // Skip label quads (they're just markers)
         if (quad.op == nullptr && quad.res != nullptr && isLabel(quad.res)) {
@@ -418,8 +425,15 @@ void Executor::Execute() {
         pc++;
     }
 
-    std::cout << "\n=== Execution Complete ===" << std::endl;
-    std::cout << "Final variable values:" << std::endl;
+    if(DEBUG){
+        std::cout << "\n=== Execution Complete ===" << std::endl;
+        std::cout << "Final ";
+        printVars();
+    }
+}
+
+void Executor::printVars(){
+    std::cout << "variable values:" << std::endl;
     for (const auto& pair : variables) {
         uint64_t key = pair.first;
         std::string name;

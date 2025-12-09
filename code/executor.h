@@ -24,6 +24,7 @@ private:
     uint32_t findLabelIndex(SymbolInfo* label);
     void buildLabelMap();  // Build map of labels to quad indices
     void printQuad(const Quad& quad, uint32_t index);
+    void printVars();
 };
 
 #endif

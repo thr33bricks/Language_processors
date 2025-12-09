@@ -3,6 +3,7 @@
 #include "lex.h"
 #include "synt.h"
 #include "executor.h"
+#include "settings.h"
 
 // Declare the global used by the executor implementation
 extern SymbTab* GLOBAL_ST;
@@ -30,21 +31,24 @@ int main() {
     // Test Syntax analyzer
     bool syntSuccess = synt->Parse();
     if(syntSuccess) {
-        std::cout << "Syntax analysis successful!" << std::endl;
-        //std::cout << "Total quads generated: " << synt->quads.size() << std::endl;
+        if(DEBUG)
+            std::cout << "Syntax analysis successful!" << std::endl;
+        //  std::cout << "Total quads generated: " << synt->quads.size() << std::endl;
         
         // Set the global symbol table pointer for name lookups in executor
         GLOBAL_ST = lex->st;
 
         // Execute the quads
         Executor* executor = new Executor(synt->quads);
-        executor->PrintQuads();  // Print all generated quads
+        if(DEBUG)
+            executor->PrintQuads();  // Print all generated quads
         executor->Execute();     // Execute the quads
         
         delete executor;
     }
     else {
-        std::cout << "Syntax analysis failed!" << std::endl;
+        if(ERROR)
+            std::cout << "Syntax analysis failed!" << std::endl;
     }
 
     delete synt;
